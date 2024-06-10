@@ -7,7 +7,6 @@ import torch.nn.functional as F
 import torch.utils
 import torch.utils.data
 import torchvision.transforms as transforms
-import numpy as np
 
 from wilds import get_dataset
 from wilds.common.data_loaders import get_train_loader
@@ -61,14 +60,15 @@ class TrainIWilds:
         for i, (_, label, metadata) in enumerate(self.subset):
             if metadata[0].item() in class_traps[label.item()]:
                 selected_samples.append(i)
-        self.subset.indices = selected_samples
+        self.subset.indices = [self.subset.indices[i] for i in selected_samples]
 
     def select_classes(self, condiction: callable) -> None:
         selected_samples = list()
         for i, (_, label, _) in enumerate(self.subset):
-            if label.item() in self.target_transform and condiction(self.target_transform[label.item()]):
+            label = label.item()
+            if label in self.target_transform and condiction(self.target_transform[label]):
                 selected_samples.append(i)
-        self.subset.indices = selected_samples
+        self.subset.indices = [self.subset.indices[i] for i in selected_samples]
 
     def __getitem__(self, index: int) -> Tuple[Image.Image, int, Image.Image]:
         not_aug_img, label, _ = self.subset[index]
