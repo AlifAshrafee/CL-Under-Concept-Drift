@@ -4,9 +4,17 @@ from typing import Union
 
 
 class StreamSpecification:
-    def __init__(self, n_tasks: int, n_classes: int, random_seed: int = None,
-                 n_slots: Union[int, None] = None, n_drifts: Union[int, None] = None, sequential_drifts: bool = False,
-                 max_classes_per_drift: int = 5) -> None:
+
+    def __init__(
+        self,
+        n_tasks: int,
+        n_classes: int,
+        random_seed: int = None,
+        n_slots: Union[int, None] = None,
+        n_drifts: Union[int, None] = None,
+        sequential_drifts: bool = False,
+        max_classes_per_drift: int = 0,
+    ) -> None:
         """
         Utility class that represents the class-task layout of the overall task stream.
 
@@ -62,7 +70,7 @@ class StreamSpecification:
             self._new_classes.append(new_classes)
             if t in drift_indexes:
                 drifted_classes = list(range(drift_begin_idx, classes_per_task * t))
-                drifted_classes = drifted_classes[-self.max_classes_per_drift:]
+                drifted_classes = drifted_classes[-min(self.max_classes_per_drift, len(drifted_classes)):]
                 self._drifted_classes.append(drifted_classes)
                 drift_begin_idx = classes_per_task * t
             else:
