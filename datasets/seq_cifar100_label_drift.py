@@ -11,24 +11,22 @@ from datasets.transforms.denormalization import DeNormalize
 from datasets.utils.continual_dataset import ContinualDataset
 from utils.conf import base_path_dataset as base_path
 from datasets.mammoth_dataset import MammothDataset
-from datasets.utils.cifar100_label_mapping import (
-    superclass_target_mapping,
-    metaclass_target_mapping,
-)
+# from datasets.utils.cifar100_label_mapping import (
+#     superclass_target_mapping,
+#     metaclass_target_mapping,
+# )
 
 
 class TrainCIFAR100LabelDrift(MammothDataset, CIFAR100):
-    def __init__(self, root, transform, superclass_mapping, metaclass_mapping, not_aug_transform):
+    def __init__(self, root, transform, metaclass_mapping: dict, not_aug_transform):
         self.root = root    # Workaround to avoid printing the already downloaded messages
         super().__init__(
             root,
             train=True,
             transform=transform,
-            target_transform=None,
+            target_transform=metaclass_mapping,
             download=not self._check_integrity(),
         )
-        self.superclass_mapping = superclass_mapping
-        self.metaclass_mapping = metaclass_mapping
         self.not_aug_transform = not_aug_transform
         self.classes = list(range(100))
 
@@ -46,8 +44,7 @@ class TrainCIFAR100LabelDrift(MammothDataset, CIFAR100):
         original_target = target.copy()
         not_aug_img = self.not_aug_transform(original_image)
         img = self.transform(img)
-        target = self.superclass_mapping[target]
-        target = self.metaclass_mapping[target]
+        target = self.target_transform[target]
 
         if hasattr(self, "logits"):
             return img, target, not_aug_img, original_target, self.logits[index]
@@ -76,8 +73,7 @@ class TrainCIFAR100LabelDrift(MammothDataset, CIFAR100):
 
         # switch meta-class in target_transform dictionary
         for c in classes:
-            s = self.superclass_mapping[c]
-            self.metaclass_mapping[s] = 0 if self.metaclass_mapping[s] == 1 else 1
+            self.target_transform[c] = 0 if self.target_transform[c] == 1 else 1
 
     def prepare_normal_data(self):
         pass
@@ -86,17 +82,15 @@ class TrainCIFAR100LabelDrift(MammothDataset, CIFAR100):
 class TestCIFAR100LabelDrift(MammothDataset, CIFAR100):
     """Workaround to avoid printing the already downloaded messages."""
 
-    def __init__(self, root, transform, superclass_mapping, metaclass_mapping):
+    def __init__(self, root, transform, metaclass_mapping):
         self.root = root
         super().__init__(
             root,
             train=False,
             transform=transform,
-            target_transform=None,
+            target_transform=metaclass_mapping,
             download=not self._check_integrity(),
         )
-        self.superclass_mapping = superclass_mapping
-        self.metaclass_mapping = metaclass_mapping
         self.classes = list(range(100))
 
     def __getitem__(self, index: int) -> Tuple[Image.Image, int]:
@@ -111,8 +105,7 @@ class TestCIFAR100LabelDrift(MammothDataset, CIFAR100):
         img = Image.fromarray(img)
         img = self.transform(img)
         original_target = target.copy()
-        target = self.superclass_mapping[target]
-        target = self.metaclass_mapping[target]
+        target = self.target_transform[target]
 
         return img, target, original_target
 
@@ -138,8 +131,7 @@ class TestCIFAR100LabelDrift(MammothDataset, CIFAR100):
 
         # switch meta-class in target_transform dictionary
         for c in classes:
-            s = self.superclass_mapping[c]
-            self.metaclass_mapping[s] = 0 if self.metaclass_mapping[s] == 1 else 1
+            self.target_transform[c] = 0 if self.target_transform[c] == 1 else 1
 
     def prepare_normal_data(self):
         pass
@@ -169,23 +161,24 @@ class SequentialCIFAR100LabelDrift(ContinualDataset):
 
     NO_AUG_TRANSFORM = transforms.Compose([transforms.ToTensor()])
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.metaclass_mapping = {c : mc for c, mc in zip(range(100), [i % 2 for i in range(100)])}
+
     def get_dataset(self, train=True):
-        """returns native version of represented dataset"""
 
         if train:
             return TrainCIFAR100LabelDrift(
                 base_path() + "CIFAR100",
                 transform=self.TRANSFORM,
-                superclass_mapping=copy.deepcopy(superclass_target_mapping),
-                metaclass_mapping=copy.deepcopy(metaclass_target_mapping),
+                metaclass_mapping=copy.deepcopy(self.metaclass_mapping),
                 not_aug_transform=self.NO_AUG_TRANSFORM,
             )
         else:
             return TestCIFAR100LabelDrift(
                 base_path() + "CIFAR100",
                 transform=self.TEST_TRANSFORM,
-                superclass_mapping=copy.deepcopy(superclass_target_mapping),
-                metaclass_mapping=copy.deepcopy(metaclass_target_mapping),
+                metaclass_mapping=copy.deepcopy(self.metaclass_mapping),
             )
 
     def get_transform(self):
