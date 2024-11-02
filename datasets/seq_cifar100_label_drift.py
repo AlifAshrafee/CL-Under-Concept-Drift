@@ -11,10 +11,6 @@ from datasets.transforms.denormalization import DeNormalize
 from datasets.utils.continual_dataset import ContinualDataset
 from utils.conf import base_path_dataset as base_path
 from datasets.mammoth_dataset import MammothDataset
-# from datasets.utils.cifar100_label_mapping import (
-#     superclass_target_mapping,
-#     metaclass_target_mapping,
-# )
 
 
 class TrainCIFAR100LabelDrift(MammothDataset, CIFAR100):
