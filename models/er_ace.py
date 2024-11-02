@@ -34,7 +34,7 @@ class ErACE(ContinualModel):
     def end_task(self, dataset):
         self.task += 1
 
-    def observe(self, inputs, labels, not_aug_inputs):
+    def observe(self, inputs, labels, not_aug_inputs, original_targets=None):
 
         present = labels.unique()
         self.seen_so_far = torch.cat([self.seen_so_far, present]).unique()
@@ -53,10 +53,9 @@ class ErACE(ContinualModel):
         loss = self.loss(logits, labels)
         loss_re = torch.tensor(0.)
 
-        if self.task > 0:
-            # sample from buffer
-            buf_inputs, buf_labels = self.buffer.get_data(
-                self.args.minibatch_size, transform=self.transform)
+        if self.task > 0 and not self.buffer.is_empty():
+            buf_data = self.buffer.get_data(self.args.minibatch_size, transform=self.transform)
+            buf_inputs, buf_labels = buf_data[0], buf_data[1]
             loss_re = self.loss(self.net(buf_inputs), buf_labels)
 
         loss += loss_re
@@ -65,6 +64,7 @@ class ErACE(ContinualModel):
         self.opt.step()
 
         self.buffer.add_data(examples=not_aug_inputs,
-                             labels=labels)
+                             labels=labels,
+                             original_labels=original_targets)
 
         return loss.item()
