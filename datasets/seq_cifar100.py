@@ -16,16 +16,23 @@ import numpy as np
 from datasets.transforms.denormalization import DeNormalize
 from datasets.utils.continual_dataset import ContinualDataset
 from utils.conf import base_path_dataset as base_path
-from datasets.transforms.driftTransforms import DefocusBlur, GaussianNoise, ShotNoise, SpeckleNoise, Identity
+from datasets.transforms.driftTransforms import (
+    DefocusBlur,
+    GaussianNoise,
+    ShotNoise,
+    SpeckleNoise,
+    RotateTransform,
+    PixelPermutation,
+    Identity,
+)
 from datasets.mammoth_dataset import MammothDataset
 
 
 class TrainCIFAR100(MammothDataset, CIFAR100):
-    def __init__(self, root: str, transform, not_aug_transform, train_drift, drift_transform) -> None:
+    def __init__(self, root: str, transform, not_aug_transform, drift_transform) -> None:
         self.root = root    # Workaround to avoid printing the already downloaded messages
         super().__init__(root, train=True, transform=transform, target_transform=None, download=not self._check_integrity())
         self.not_aug_transform = not_aug_transform
-        self.train_drift = train_drift
         self.drift_transform = drift_transform
         self.classes = list(range(100))
 
@@ -42,8 +49,6 @@ class TrainCIFAR100(MammothDataset, CIFAR100):
 
         if target in self.drifted_classes:
             img = self.drift_transform(img)
-        else:
-            img = self.train_drift(img)
 
         original_img = img.copy()
         img = self.transform(img)
@@ -84,12 +89,10 @@ class TrainCIFAR100(MammothDataset, CIFAR100):
 class TestCIFAR100(MammothDataset, CIFAR100):
     """Workaround to avoid printing the already downloaded messages."""
 
-    def __init__(self, root, transform, train_drift, drift_transform) -> None:
+    def __init__(self, root, transform, drift_transform) -> None:
         self.root = root
         super().__init__(root, train=False, transform=transform, target_transform=None, download=not self._check_integrity())
-        self.train_drift = train_drift
         self.drift_transform = drift_transform
-
         self.classes = list(range(100))
 
     def __getitem__(self, index: int) -> Tuple[Image.Image, int]:
@@ -108,8 +111,6 @@ class TestCIFAR100(MammothDataset, CIFAR100):
 
         if target in self.drifted_classes:
             img = self.drift_transform(img)
-        else:
-            img = self.train_drift(img)
 
         img = self.transform(img)
 
@@ -134,6 +135,7 @@ class TestCIFAR100(MammothDataset, CIFAR100):
         if len(set(self.classes).union(classes)) == 0:
             return
         self.drifted_classes.extend(classes)
+        print(f"All drifted classes: {self.drifted_classes}")
 
     def prepare_normal_data(self):
         pass
@@ -143,19 +145,19 @@ class SequentialCIFAR100(ContinualDataset):
 
     NAME = 'seq-cifar100'
     SETTING = 'class-il'
-    N_CLASSES_PER_TASK = 5
-    N_TASKS = 20
+    N_CLASSES_PER_TASK = 10
+    N_TASKS = 10
 
     TRANSFORM = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
+        # transforms.RandomCrop(32, padding=4),
+        # transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
+        # transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
     ])
 
     TEST_TRANSFORM = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
+        # transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761))
     ])
 
     NO_AUG_TRANSFORM = transforms.Compose([transforms.ToTensor()])
@@ -165,16 +167,15 @@ class SequentialCIFAR100(ContinualDataset):
         GaussianNoise,
         ShotNoise,
         SpeckleNoise,
+        RotateTransform,
+        PixelPermutation,
         Identity,
     ]
 
     def get_dataset(self, train=True):
         """returns native version of represented dataset"""
         DRIFT_SEVERITY = self.args.drift_severity
-        TRAIN_DRIFT = transforms.Compose([
-            self.DRIFT_TYPES[self.args.train_drift](DRIFT_SEVERITY),
-            transforms.ToPILImage()
-        ])
+
         DRIFT = transforms.Compose([
             self.DRIFT_TYPES[self.args.concept_drift](DRIFT_SEVERITY),
             transforms.ToPILImage()
@@ -183,10 +184,10 @@ class SequentialCIFAR100(ContinualDataset):
 
         if train:
             return TrainCIFAR100(base_path() + 'CIFAR100',
-                                 transform=self.TRANSFORM, not_aug_transform=self.NO_AUG_TRANSFORM, train_drift=TRAIN_DRIFT, drift_transform=DRIFT)
+                                 transform=self.TRANSFORM, not_aug_transform=self.NO_AUG_TRANSFORM, drift_transform=DRIFT)
         else:
             return TestCIFAR100(base_path() + 'CIFAR100',
-                                transform=self.TEST_TRANSFORM, train_drift=TRAIN_DRIFT, drift_transform=DRIFT)
+                                transform=self.TEST_TRANSFORM, drift_transform=DRIFT)
 
     def get_transform(self):
         transform = transforms.Compose(
@@ -215,6 +216,17 @@ class SequentialCIFAR100(ContinualDataset):
         return transform
 
     @staticmethod
+    def get_scheduler(model, args) -> torch.optim.lr_scheduler:
+        model.opt = torch.optim.SGD(
+            model.net.parameters(),
+            lr=args.lr,
+            weight_decay=args.optim_wd,
+            momentum=args.optim_mom,
+        )
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(model.opt, [35, 45], gamma=0.1, verbose=False)
+        return scheduler
+
+    @staticmethod
     def get_epochs():
         return 50
 
@@ -225,9 +237,3 @@ class SequentialCIFAR100(ContinualDataset):
     @staticmethod
     def get_minibatch_size():
         return SequentialCIFAR100.get_batch_size()
-
-    @staticmethod
-    def get_scheduler(model, args) -> torch.optim.lr_scheduler:
-        model.opt = torch.optim.SGD(model.net.parameters(), lr=args.lr, weight_decay=args.optim_wd, momentum=args.optim_mom)
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(model.opt, [35, 45], gamma=0.1, verbose=False)
-        return scheduler

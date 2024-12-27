@@ -22,7 +22,6 @@ class ContinualDataset:
     SETTING: str
     N_CLASSES_PER_TASK: int
     N_TASKS: int
-    HAS_LABEL_DRIFT: bool = False
 
     def __init__(self, args: Namespace) -> None:
         """
@@ -33,7 +32,8 @@ class ContinualDataset:
         self.test_loaders = []
         self.i = 0
         self.args = args
-        self.drifting_classes = []
+        self.seen_classes = []
+        self.recurring_classes = []
 
         if not all((self.NAME, self.SETTING, self.N_CLASSES_PER_TASK, self.N_TASKS)):
             raise NotImplementedError(
@@ -77,6 +77,12 @@ class ContinualDataset:
 
     def get_drifted_data_loaders(self) -> Tuple[DataLoader, DataLoader]:
         current_classes, drifted_classes = next(self.stream_spec_it)
+        print(f"New Classes: {current_classes}")
+        print(f"Drifted Classes: {drifted_classes}")
+
+        self.seen_classes.extend(current_classes)
+        recurring_classes = list(set(self.seen_classes) & set(drifted_classes))
+        self.recurring_classes = recurring_classes
 
         train_dataset = self.get_dataset(train=True)
         train_dataset.select_classes(current_classes)
@@ -85,39 +91,36 @@ class ContinualDataset:
         test_dataset.select_classes(current_classes)
         test_dataset.prepare_normal_data()
 
-        if len(drifted_classes) > 0:
-            drifting_train_dataset = self.get_dataset(train=True)
-            drifting_train_dataset.select_classes(drifted_classes)
-            drifting_train_dataset.apply_drift(drifted_classes)
-
-            drifting_test_dataset = self.get_dataset(train=False)
-            drifting_test_dataset.select_classes(drifted_classes)
-            drifting_test_dataset.apply_drift(drifted_classes)
-
-            train_dataset = torch.utils.data.ConcatDataset([drifting_train_dataset, train_dataset])
-            test_dataset = torch.utils.data.ConcatDataset([drifting_test_dataset, test_dataset])
         train_loader = DataLoader(train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=4)
         self.train_loader = train_loader
+
+        test_loader = DataLoader(test_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=4)
+        self.test_loaders.append(test_loader)
 
         if len(drifted_classes) > 0:
             for t in range(len(self.test_loaders)):
                 prev_test_data = self.test_loaders[t].dataset
-                if type(prev_test_data) == torch.utils.data.ConcatDataset:
-                    for prev_data in prev_test_data.datasets:
-                        prev_data.apply_drift(drifted_classes)
-                    prev_test_data.cumulative_sizes = prev_test_data.cumsum(prev_test_data.datasets)
-                else:
-                    prev_test_data.apply_drift(drifted_classes)
-                self.test_loaders[t] = DataLoader(prev_test_data, batch_size=self.args.batch_size, shuffle=False, num_workers=4)
-
-        self.drifting_classes = drifted_classes
-
-        test_loader = DataLoader(test_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=4)
-
-        # current test loader contains undrifted images
-        self.test_loaders.append(test_loader)
+                prev_test_data.apply_drift(drifted_classes)
+                self.test_loaders[t] = DataLoader(prev_test_data, batch_size=self.args.batch_size, 
+                                                  shuffle=False, num_workers=4)
 
         return train_loader, test_loader
+
+    def request_drifted_data_with_current_data(self, drifted_classes) -> DataLoader:
+        drifting_train_dataset = self.get_dataset(train=True)
+        drifting_train_dataset.select_classes(drifted_classes)
+        drifting_train_dataset.apply_drift(drifted_classes)
+        train_dataset = torch.utils.data.ConcatDataset([drifting_train_dataset, self.train_loader.dataset])
+        train_loader = DataLoader(train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=4)
+        self.train_loader = train_loader
+        return train_loader
+
+    def request_drifted_data(self, drifted_classes) -> DataLoader:
+        drifting_train_dataset = self.get_dataset(train=True)
+        drifting_train_dataset.select_classes(drifted_classes)
+        drifting_train_dataset.apply_drift(drifted_classes)
+        buffer_resampling_data_loader = DataLoader(drifting_train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=4)
+        return buffer_resampling_data_loader
 
     def get_dataset(self, train=True) -> MammothDataset:
         """returns native version of represented dataset"""

@@ -27,7 +27,7 @@ class Er(ContinualModel):
         super(Er, self).__init__(backbone, loss, args, transform)
         self.buffer = Buffer(self.args.buffer_size, self.device, mode=args.buffer_mode)
 
-    def observe(self, inputs, labels, not_aug_inputs, original_targets=None):
+    def observe(self, inputs, labels, not_aug_inputs):
 
         real_batch_size = inputs.shape[0]
 
@@ -43,13 +43,6 @@ class Er(ContinualModel):
         loss.backward()
         self.opt.step()
 
-        if original_targets is not None:
-            original_targets = original_targets[:real_batch_size]
-
-        self.buffer.add_data(
-            examples=not_aug_inputs,
-            labels=labels[:real_batch_size],
-            original_labels=original_targets,
-        )
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels[:real_batch_size])
 
         return loss.item()

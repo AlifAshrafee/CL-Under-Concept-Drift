@@ -37,6 +37,15 @@ def mask_classes(outputs: torch.Tensor, dataset: ContinualDataset, k: int) -> No
     outputs[:, (k + 1) * dataset.N_CLASSES_PER_TASK:
             dataset.N_TASKS * dataset.N_CLASSES_PER_TASK] = -float('inf')
 
+def get_unique_labels(data_loader):
+    labels = []
+    for data in data_loader:
+        batch_labels = data[1]
+        labels.extend(batch_labels.numpy())
+
+    unique_labels = torch.unique(torch.tensor(labels))
+    return unique_labels.tolist()
+
 
 def evaluate(model: ContinualModel, dataset: ContinualDataset, last=False) -> Tuple[list, list]:
     """
@@ -55,6 +64,9 @@ def evaluate(model: ContinualModel, dataset: ContinualDataset, last=False) -> Tu
         correct, correct_mask_classes, total = 0.0, 0.0, 0.0
         predictions = list()
         all_labels = list()
+
+        # unique_labels = get_unique_labels(test_loader)
+        # print("Unique labels in the data loader:", unique_labels)
 
         for data in test_loader:
             with torch.no_grad():
@@ -84,7 +96,7 @@ def evaluate(model: ContinualModel, dataset: ContinualDataset, last=False) -> Tu
         predictions = torch.cat(predictions, dim=0).cpu().numpy()
         all_labels = torch.cat(all_labels, dim=0).cpu().numpy()
 
-        f1 = sklearn.metrics.f1_score(all_labels, predictions) * 100.0
+        f1 = sklearn.metrics.f1_score(all_labels, predictions, average='macro') * 100.0
         f1_scores.append(f1)
 
     model.net.train(status)
@@ -138,8 +150,21 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
             results[t-1] = results[t-1] + accs[0]
             if dataset.SETTING == 'class-il':
                 results_mask_classes[t-1] = results_mask_classes[t-1] + accs[1]
-        if args.buffer_flushing == 1:
-            detect_uncertainty_drift(dataset, train_loader, model)
+        if args.drift_adaptation > 0:
+            flagged_classes = detect_uncertainty_drift(dataset, model)
+            if len(flagged_classes) > 0:
+                if args.drift_adaptation == 1:
+                    train_loader = dataset.request_drifted_data_with_current_data(flagged_classes)
+                elif args.drift_adaptation == 2:
+                    buffer_resampling_data_loader = dataset.request_drifted_data(flagged_classes)
+                    for data in buffer_resampling_data_loader:
+                        inputs, labels, not_aug_inputs = data[0], data[1], data[2]
+                        inputs = inputs.to(model.device)
+                        labels = labels.to(model.device)
+                        not_aug_inputs = not_aug_inputs.to(model.device)
+                        real_batch_size = inputs.shape[0]
+                        model.buffer.add_data(examples=not_aug_inputs, labels=labels[:real_batch_size])
+
         scheduler = dataset.get_scheduler(model, args)
         for epoch in range(model.args.n_epochs):
             if args.model == 'joint':
@@ -152,16 +177,13 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
                 inputs = inputs.to(model.device)
                 labels = labels.to(model.device)
                 not_aug_inputs = not_aug_inputs.to(model.device)
-                original_targets = None
-                if dataset.HAS_LABEL_DRIFT:
-                    original_targets = data[3].to(model.device)
 
                 if hasattr(dataset.train_loader.dataset, 'logits'):
                     logits = data[-1]
                     logits = logits.to(model.device)
-                    loss = model.meta_observe(inputs, labels, not_aug_inputs, logits, original_targets)
+                    loss = model.meta_observe(inputs, labels, not_aug_inputs, logits)
                 else:
-                    loss = model.meta_observe(inputs, labels, not_aug_inputs, original_targets)
+                    loss = model.meta_observe(inputs, labels, not_aug_inputs)
                 assert not math.isnan(loss)
                 progress_bar.prog(i, len(train_loader), epoch, t, loss)
 
@@ -192,8 +214,12 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
 
             wandb.log(d2)
 
-    with open(f"../results/{datetime.now().strftime('%m-%d-%y-%H-%M-%S')}-{args.dataset}-drift-{args.concept_drift}-task-accuracies.json",
-              'w') as jsonfile:
+    log_filename = (
+        f"../results/Concept-Drift/{datetime.now().strftime('%m-%d-%y-%H-%M-%S')}-{args.dataset}-{args.model}-buf-{args.buffer_size}"
+        f"{'-drift-' + str(args.concept_drift) + '-n-' + str(args.n_drifts) + '-severity-' + str(args.drift_severity) + '-adaptation-' + str(args.drift_adaptation) + '-cpd-' + str(args.max_classes_per_drift) if args.concept_drift > -1 else '-no-drift'}.json"
+    )
+
+    with open(log_filename, 'w') as jsonfile:
         json.dump({'task_accuracies': results, 'task_f1': results_f1}, jsonfile)
 
     if not args.disable_log and not args.ignore_other_metrics:

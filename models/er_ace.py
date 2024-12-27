@@ -34,7 +34,7 @@ class ErACE(ContinualModel):
     def end_task(self, dataset):
         self.task += 1
 
-    def observe(self, inputs, labels, not_aug_inputs, original_targets=None):
+    def observe(self, inputs, labels, not_aug_inputs):
 
         present = labels.unique()
         self.seen_so_far = torch.cat([self.seen_so_far, present]).unique()
@@ -63,8 +63,6 @@ class ErACE(ContinualModel):
         loss.backward()
         self.opt.step()
 
-        self.buffer.add_data(examples=not_aug_inputs,
-                             labels=labels,
-                             original_labels=original_targets)
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels)
 
         return loss.item()

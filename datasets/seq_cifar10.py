@@ -16,16 +16,23 @@ from torchvision.datasets import CIFAR10
 from utils.conf import base_path_dataset as base_path
 from datasets.transforms.denormalization import DeNormalize
 from datasets.utils.continual_dataset import ContinualDataset
-from datasets.transforms.driftTransforms import DefocusBlur, GaussianNoise, ShotNoise, SpeckleNoise, Identity
+from datasets.transforms.driftTransforms import (
+    DefocusBlur,
+    GaussianNoise,
+    ShotNoise,
+    SpeckleNoise,
+    RotateTransform,
+    PixelPermutation,
+    Identity,
+)
 from datasets.mammoth_dataset import MammothDataset
 
 
 class TrainCIFAR10(MammothDataset, CIFAR10):
-    def __init__(self, root: str, transform, not_aug_transform, train_drift, drift_transform) -> None:
+    def __init__(self, root: str, transform, not_aug_transform, drift_transform) -> None:
         self.root = root    # Workaround to avoid printing the already downloaded messages
         super().__init__(root, train=True, transform=transform, target_transform=None, download=not self._check_integrity())
         self.not_aug_transform = not_aug_transform
-        self.train_drift = train_drift
         self.drift_transform = drift_transform
         self.classes = list(range(10))
 
@@ -42,8 +49,6 @@ class TrainCIFAR10(MammothDataset, CIFAR10):
 
         if target in self.drifted_classes:
             img = self.drift_transform(img)
-        else:
-            img = self.train_drift(img)
 
         original_img = img.copy()
         img = self.transform(img)
@@ -84,12 +89,10 @@ class TrainCIFAR10(MammothDataset, CIFAR10):
 class TestCIFAR10(MammothDataset, CIFAR10):
     """Workaround to avoid printing the already downloaded messages."""
 
-    def __init__(self, root, transform, train_drift, drift_transform) -> None:
+    def __init__(self, root, transform, drift_transform) -> None:
         self.root = root
         super().__init__(root, train=False, transform=transform, target_transform=None, download=not self._check_integrity())
-        self.train_drift = train_drift
         self.drift_transform = drift_transform
-
         self.classes = list(range(10))
 
     def __getitem__(self, index: int) -> Tuple[Image.Image, int]:
@@ -108,8 +111,6 @@ class TestCIFAR10(MammothDataset, CIFAR10):
 
         if target in self.drifted_classes:
             img = self.drift_transform(img)
-        else:
-            img = self.train_drift(img)
 
         img = self.transform(img)
 
@@ -147,15 +148,15 @@ class SequentialCIFAR10(ContinualDataset):
     N_TASKS = 5
 
     TRANSFORM = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
+        # transforms.RandomCrop(32, padding=4),
+        # transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2615))
+        # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2615))
     ])
 
     TEST_TRANSFORM = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2615))
+        # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2615))
     ])
 
     NO_AUG_TRANSFORM = transforms.Compose([transforms.ToTensor()])
@@ -165,28 +166,26 @@ class SequentialCIFAR10(ContinualDataset):
         GaussianNoise,
         ShotNoise,
         SpeckleNoise,
+        RotateTransform,
+        PixelPermutation,
         Identity,
     ]
 
     def get_dataset(self, train=True):
         """returns native version of represented dataset"""
         DRIFT_SEVERITY = self.args.drift_severity
-        TRAIN_DRIFT = transforms.Compose([
-            self.DRIFT_TYPES[self.args.train_drift](DRIFT_SEVERITY),
-            transforms.ToPILImage()
-        ])
+
         DRIFT = transforms.Compose([
             self.DRIFT_TYPES[self.args.concept_drift](DRIFT_SEVERITY),
             transforms.ToPILImage()
         ])
 
-
         if train:
             return TrainCIFAR10(base_path() + 'CIFAR10',
-                                transform=self.TRANSFORM, not_aug_transform=self.NO_AUG_TRANSFORM, train_drift=TRAIN_DRIFT, drift_transform=DRIFT)
+                                transform=self.TRANSFORM, not_aug_transform=self.NO_AUG_TRANSFORM, drift_transform=DRIFT)
         else:
             return TestCIFAR10(base_path() + 'CIFAR10',
-                               transform=self.TEST_TRANSFORM, train_drift=TRAIN_DRIFT, drift_transform=DRIFT)
+                               transform=self.TEST_TRANSFORM, drift_transform=DRIFT)
 
     def get_transform(self):
         transform = transforms.Compose(

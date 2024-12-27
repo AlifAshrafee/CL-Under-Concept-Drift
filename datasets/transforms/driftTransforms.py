@@ -25,7 +25,6 @@ class DefocusBlur():
         return cv2.GaussianBlur(aliased_disk, ksize=ksize, sigmaX=alias_blur)
 
     def defocus_blur(self, x, severity):
-        # print(np.array(x).dtype) # uint8
         c = [(0.3, 0.4), (0.4, 0.5), (0.5, 0.6), (1, 0.2), (1.5, 0.1)][severity - 1]
 
         x = np.array(x) / 255.
@@ -86,6 +85,52 @@ class SpeckleNoise():
 
         x = np.array(x) / 255.
         x = np.clip(x + x * np.random.normal(size=x.shape, scale=c), 0, 1) * 255.
+        return x.astype(np.uint8)
+
+
+class RotateTransform():
+    def __init__(self, severity=1):
+        self.severity = severity
+    
+    def __call__(self, x):
+        return self.rotate(x, self.severity)
+
+    def rotate(self, x, severity):
+        rotation_degrees = [45, 90, 135, 180, 270]
+        angle = rotation_degrees[severity - 1]
+        x = np.array(x)
+        h, w = x.shape[:2]
+        center = (w // 2, h // 2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, angle, scale=1.0)
+        rotated_x = cv2.warpAffine(x, rotation_matrix, (w, h), borderMode=cv2.BORDER_REPLICATE)
+
+        return np.clip(rotated_x, 0, 255).astype(np.uint8)
+
+
+class PixelPermutation():
+    def __init__(self, severity=1):
+        self.severity = severity
+
+    def __call__(self, x):
+        return self.permute_pixels(x, self.severity)
+
+    @staticmethod
+    def permute_pixels(x, severity):
+        np.random.seed(42)
+        proportions = [0.1, 0.25, 0.5, 0.75, 1.0]
+        shuffle_proportion = proportions[severity - 1]
+
+        x = np.array(x)
+        x_flat = np.array(x).reshape(-1, x.shape[-1])   # Flatten to (num_pixels, C)
+        num_pixels = x_flat.shape[0]
+        num_shuffle = int(num_pixels * shuffle_proportion)
+
+        indices = np.arange(num_pixels)
+        shuffle_indices = np.random.choice(indices, size=num_shuffle, replace=False)
+        permuted_indices = np.random.permutation(shuffle_indices)
+        x_flat[shuffle_indices] = x_flat[permuted_indices]
+        x = x_flat.reshape(x.shape)
+
         return x.astype(np.uint8)
 
 
