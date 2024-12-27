@@ -45,8 +45,8 @@ def add_experiment_args(parser: ArgumentParser) -> None:
     parser.add_argument('--drift_adaptation', default=0, choices=[0, 1, 2], type=int,
                         help='Choose adaptation method when concept drift is detected: \
                         0 -> No adaptation, 1 -> Full relearning, 2 -> Buffer resampling')
-    parser.add_argument('--n_slots', default=None, type=int, 
-                        help='number of classes per task used when generating task stream randomly based on slots')
+    # parser.add_argument('--n_slots', default=None, type=int, 
+    #                     help='number of classes per task used when generating task stream randomly based on slots')
     parser.add_argument('--n_drifts', default=None, type=int, 
                         help='number of drifts created when creating evenly spaced drfits')
     parser.add_argument('--max_classes_per_drift', type=int, default=0,

@@ -66,7 +66,7 @@ def evaluate(model: ContinualModel, dataset: ContinualDataset, last=False) -> Tu
         all_labels = list()
 
         # unique_labels = get_unique_labels(test_loader)
-        # print("Unique labels in the data loader:", unique_labels)
+        # print("Unique labels in test loader:", unique_labels)
 
         for data in test_loader:
             with torch.no_grad():
@@ -164,6 +164,9 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
                         not_aug_inputs = not_aug_inputs.to(model.device)
                         real_batch_size = inputs.shape[0]
                         model.buffer.add_data(examples=not_aug_inputs, labels=labels[:real_batch_size])
+
+        # unique_labels = get_unique_labels(train_loader)
+        # print("Unique labels in train loader:", unique_labels)
 
         scheduler = dataset.get_scheduler(model, args)
         for epoch in range(model.args.n_epochs):

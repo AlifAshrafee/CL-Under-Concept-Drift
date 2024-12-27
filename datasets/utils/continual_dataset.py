@@ -39,14 +39,14 @@ class ContinualDataset:
             raise NotImplementedError(
                 'The dataset must be initialized with all the required fields.')
 
-        if args.n_slots or args.n_drifts or args.sequential_drifts:
+        if args.n_drifts or args.sequential_drifts:
             n_tasks = self.N_TASKS
             n_classes = self.N_CLASSES_PER_TASK * self.N_TASKS
             self.stream_spec = StreamSpecification(
                 n_tasks,
                 n_classes,
                 random_seed=args.seed,
-                n_slots=args.n_slots,
+                # n_slots=args.n_slots,     # For future implementations
                 n_drifts=args.n_drifts,
                 sequential_drifts=args.sequential_drifts,
                 max_classes_per_drift=args.max_classes_per_drift,
@@ -76,19 +76,22 @@ class ContinualDataset:
         return train_loader, test_loader
 
     def get_drifted_data_loaders(self) -> Tuple[DataLoader, DataLoader]:
-        current_classes, drifted_classes = next(self.stream_spec_it)
-        print(f"New Classes: {current_classes}")
-        print(f"Drifted Classes: {drifted_classes}")
+        current_classes = next(self.stream_spec_it)
 
-        self.seen_classes.extend(current_classes)
-        recurring_classes = list(set(self.seen_classes) & set(drifted_classes))
+        recurring_classes = list(set(self.seen_classes) & set(current_classes))
         self.recurring_classes = recurring_classes
 
+        new_classes = list(set(current_classes) - set(self.seen_classes))
+        self.seen_classes.extend(new_classes)
+
+        print(f"New Classes: {new_classes}")
+        print(f"Recurring Classes: {recurring_classes}")
+
         train_dataset = self.get_dataset(train=True)
-        train_dataset.select_classes(current_classes)
+        train_dataset.select_classes(new_classes)
         train_dataset.prepare_normal_data()
         test_dataset = self.get_dataset(train=False)
-        test_dataset.select_classes(current_classes)
+        test_dataset.select_classes(new_classes)
         test_dataset.prepare_normal_data()
 
         train_loader = DataLoader(train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=4)
@@ -97,10 +100,10 @@ class ContinualDataset:
         test_loader = DataLoader(test_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=4)
         self.test_loaders.append(test_loader)
 
-        if len(drifted_classes) > 0:
+        if len(recurring_classes) > 0:
             for t in range(len(self.test_loaders)):
                 prev_test_data = self.test_loaders[t].dataset
-                prev_test_data.apply_drift(drifted_classes)
+                prev_test_data.apply_drift(recurring_classes)
                 self.test_loaders[t] = DataLoader(prev_test_data, batch_size=self.args.batch_size, 
                                                   shuffle=False, num_workers=4)
 
