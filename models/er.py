@@ -46,3 +46,7 @@ class Er(ContinualModel):
         self.buffer.add_data(examples=not_aug_inputs, labels=labels[:real_batch_size])
 
         return loss.item()
+    
+    def resample(self, inputs, labels, not_aug_inputs):
+        real_batch_size = inputs.shape[0]
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels[:real_batch_size])

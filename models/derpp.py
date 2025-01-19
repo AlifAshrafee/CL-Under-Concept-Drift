@@ -55,3 +55,7 @@ class Derpp(ContinualModel):
         self.buffer.add_data(examples=not_aug_inputs, labels=labels, logits=outputs.data)
 
         return loss.item()
+    
+    def resample(self, inputs, labels, not_aug_inputs):
+        outputs = self.net(inputs)
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels, logits=outputs.data)

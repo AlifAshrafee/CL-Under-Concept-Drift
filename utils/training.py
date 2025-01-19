@@ -162,8 +162,7 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
                         inputs = inputs.to(model.device)
                         labels = labels.to(model.device)
                         not_aug_inputs = not_aug_inputs.to(model.device)
-                        real_batch_size = inputs.shape[0]
-                        model.buffer.add_data(examples=not_aug_inputs, labels=labels[:real_batch_size])
+                        model.resample(inputs, labels, not_aug_inputs)
 
         # unique_labels = get_unique_labels(train_loader)
         # print("Unique labels in train loader:", unique_labels)
@@ -219,7 +218,7 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
 
     log_filename = (
         f"../results/Concept-Drift/{datetime.now().strftime('%m-%d-%y-%H-%M-%S')}-{args.dataset}-{args.model}-buf-{args.buffer_size}"
-        f"{'-drift-' + str(args.concept_drift) + '-n-' + str(args.n_drifts) + '-severity-' + str(args.drift_severity) + '-adaptation-' + str(args.drift_adaptation) + '-cpd-' + str(args.max_classes_per_drift) if args.concept_drift > -1 else '-no-drift'}.json"
+        f"{'-drift-' + str(args.concept_drift) + '-n-' + str(args.n_drifts) + '-adaptation-' + str(args.drift_adaptation) if args.concept_drift > -1 else '-no-drift'}.json"
     )
 
     with open(log_filename, 'w') as jsonfile:

@@ -135,7 +135,6 @@ class TestCIFAR100(MammothDataset, CIFAR100):
         if len(set(self.classes).union(classes)) == 0:
             return
         self.drifted_classes.extend(classes)
-        print(f"All drifted classes: {self.drifted_classes}")
 
     def prepare_normal_data(self):
         pass

@@ -38,12 +38,16 @@ class Der(ContinualModel):
 
         if not self.buffer.is_empty():
             buf_data = self.buffer.get_data(self.args.minibatch_size, transform=self.transform)
-            buf_inputs, buf_logits = buf_data[0], buf_data[1]
+            buf_inputs, buf_logits = buf_data[0], buf_data[2]
             buf_outputs = self.net(buf_inputs)
             loss += self.args.alpha * F.mse_loss(buf_outputs, buf_logits)
 
         loss.backward()
         self.opt.step()
-        self.buffer.add_data(examples=not_aug_inputs, logits=outputs.data)
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels, logits=outputs.data)
 
         return loss.item()
+    
+    def resample(self, inputs, labels, not_aug_inputs):
+        outputs = self.net(inputs)
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels, logits=outputs.data)

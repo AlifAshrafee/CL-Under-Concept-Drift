@@ -66,3 +66,6 @@ class ErACE(ContinualModel):
         self.buffer.add_data(examples=not_aug_inputs, labels=labels)
 
         return loss.item()
+
+    def resample(self, inputs, labels, not_aug_inputs):
+        self.buffer.add_data(examples=not_aug_inputs, labels=labels)
