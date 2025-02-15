@@ -46,8 +46,7 @@ def detect_uncertainty_drift(dataset, model) -> list:
                 print(f"Drift in class {cls}? {labels[preds['data']['is_drift']]}")
                 print(f"Feature-wise p-values: {', '.join([f'{p_val:.3f}' for p_val in preds['data']['p_val']])}")
 
-                if preds["data"]["is_drift"]:  # removing drifted samples from buffer
-                    model.buffer.flush_class(cls)
+                if preds["data"]["is_drift"]:
                     flagged_classes.append(cls)
 
     return flagged_classes

@@ -17,6 +17,7 @@ from models.utils.continual_model import ContinualModel
 from drift_detection import detect_uncertainty_drift
 from utils.loggers import *
 from utils.status import ProgressBar
+from utils.feature_shift_logging import extract_features
 
 try:
     import wandb
@@ -156,13 +157,7 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
                 if args.drift_adaptation == 1:
                     train_loader = dataset.request_drifted_data_with_current_data(flagged_classes)
                 elif args.drift_adaptation == 2:
-                    buffer_resampling_data_loader = dataset.request_drifted_data(flagged_classes)
-                    for data in buffer_resampling_data_loader:
-                        inputs, labels, not_aug_inputs = data[0], data[1], data[2]
-                        inputs = inputs.to(model.device)
-                        labels = labels.to(model.device)
-                        not_aug_inputs = not_aug_inputs.to(model.device)
-                        model.resample(inputs, labels, not_aug_inputs)
+                    model.buffer_resampling(dataset, flagged_classes)
 
         # unique_labels = get_unique_labels(train_loader)
         # print("Unique labels in train loader:", unique_labels)
@@ -205,6 +200,9 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
         mean_f1_scores = np.mean(metrics[2])
         print_mean_accuracy(mean_acc, mean_f1_scores, t + 1, dataset.SETTING)
 
+        if args.feature_logging:
+            extract_features(model, dataset.test_loaders[0], f"features-{str(args.dataset)}-cd-{str(args.concept_drift)}-n-{str(args.n_drifts)}-T-{t + 1}.pth")
+
         if not args.disable_log:
             logger.log(mean_acc)
             logger.log_fullacc(accs)
@@ -218,7 +216,7 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
 
     log_filename = (
         f"../results/Concept-Drift/{datetime.now().strftime('%m-%d-%y-%H-%M-%S')}-{args.dataset}-{args.model}-buf-{args.buffer_size}"
-        f"{'-drift-' + str(args.concept_drift) + '-n-' + str(args.n_drifts) + '-adaptation-' + str(args.drift_adaptation) if args.concept_drift > -1 else '-no-drift'}.json"
+        f"{'-drift-' + str(args.concept_drift) + '-s-' + str(args.drift_severity) + '-n-' + str(args.n_drifts) + '-adaptation-' + str(args.drift_adaptation) if args.concept_drift > -1 else '-no-drift'}.json"
     )
 
     with open(log_filename, 'w') as jsonfile:

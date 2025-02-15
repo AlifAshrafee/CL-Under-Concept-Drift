@@ -118,11 +118,19 @@ class ContinualDataset:
         self.train_loader = train_loader
         return train_loader
 
-    def request_drifted_data(self, drifted_classes) -> DataLoader:
+    def request_drifted_data(self, drifted_class, num_samples_requested) -> DataLoader:
         drifting_train_dataset = self.get_dataset(train=True)
-        drifting_train_dataset.select_classes(drifted_classes)
-        drifting_train_dataset.apply_drift(drifted_classes)
-        buffer_resampling_data_loader = DataLoader(drifting_train_dataset, batch_size=self.args.batch_size, shuffle=True, num_workers=4)
+        drifting_train_dataset.select_classes([drifted_class])
+        drifting_train_dataset.apply_drift([drifted_class])
+
+        labels = torch.tensor(drifting_train_dataset.targets)
+        class_indices = (labels == drifted_class).nonzero(as_tuple=True)[0].tolist()
+        num_samples = min(num_samples_requested, len(class_indices))
+        sampled_indices = torch.randperm(len(class_indices))[:num_samples].tolist()
+        selected_indices = [class_indices[i] for i in sampled_indices]
+
+        drifting_train_dataset = torch.utils.data.Subset(drifting_train_dataset, selected_indices)
+        buffer_resampling_data_loader = DataLoader(drifting_train_dataset, batch_size=num_samples, shuffle=True, num_workers=4)
         return buffer_resampling_data_loader
 
     def get_dataset(self, train=True) -> MammothDataset:

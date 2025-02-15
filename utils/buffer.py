@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from copy import deepcopy
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -278,23 +278,27 @@ class Buffer:
         else:
             return 0
 
-    def flush_class(self, label: int) -> None:
+    def flush_class(self, label: int) -> List[int]:
         """
-        Removes all samples with given label.
+        Removes all samples with the given label and returns their indices.
         If label not present in the buffer, then raise ValueError exception.
         """
-        idx = torch.argwhere(self.labels != label).flatten()
-        num_removed = len(self.labels) - len(idx)
-        if num_removed == 0:
-            raise ValueError(f'Class label {label} not present in the buffer')
+        removed_indices = (self.labels == label).nonzero(as_tuple=True)[0].tolist()
+
+        if len(removed_indices) == 0:
+            raise ValueError(f"Class label {label} not present in the buffer. Unable to flush class.")
+
         for attr_str in self.attributes:
             if hasattr(self, attr_str):
                 tensor = getattr(self, attr_str)
                 typ = torch.int64 if attr_str.endswith('els') else torch.float32
-                padding = torch.full((num_removed, *tensor.shape[1:]), fill_value=-1, dtype=typ, device=self.device)
-                new_tensor = torch.cat([tensor[idx], padding], dim=0)
-                assert new_tensor.shape == tensor.shape
-                setattr(self, attr_str, new_tensor)
-        self.current_size = max(self.current_size - num_removed, 0)
-        self.num_seen_examples -= num_removed
-        print(f'Class {label} samples removed: {num_removed}')
+                padding = torch.full_like(tensor[removed_indices], fill_value=-1, dtype=typ, device=self.device)
+                tensor[removed_indices] = padding  # Replace in-place instead of shifting
+                setattr(self, attr_str, tensor)
+
+        self.current_size = max(self.current_size - len(removed_indices), 0)
+        self.num_seen_examples -= len(removed_indices)
+        
+        print(f"Class {label} samples removed: {len(removed_indices)}")
+
+        return removed_indices
