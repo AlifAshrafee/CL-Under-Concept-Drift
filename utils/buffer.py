@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from copy import deepcopy
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -122,7 +122,7 @@ class Buffer:
             assert n_tasks is not None
             self.task_number = n_tasks
             self.buffer_portion_size = buffer_size // n_tasks
-        self.attributes = ['examples', 'labels', 'logits', 'task_labels', 'original_labels']
+        self.attributes = ['examples', 'labels', 'logits', 'task_labels']
 
     def to(self, device):
         self.device = device
@@ -135,7 +135,7 @@ class Buffer:
         return min(self.num_seen_examples, self.current_size, self.buffer_size)
 
     def init_tensors(self, examples: torch.Tensor, labels: torch.Tensor,
-                     logits: torch.Tensor, task_labels: torch.Tensor, original_labels: torch.Tensor) -> None:
+                     logits: torch.Tensor, task_labels: torch.Tensor) -> None:
         """
         Initializes just the required tensors.
         :param examples: tensor containing the images
@@ -149,7 +149,7 @@ class Buffer:
                 typ = torch.int64 if attr_str.endswith('els') else torch.float32
                 setattr(self, attr_str, torch.full((self.buffer_size, *attr.shape[1:]), fill_value=-1, dtype=typ, device=self.device))
 
-    def add_data(self, examples, labels=None, logits=None, task_labels=None, original_labels=None):
+    def add_data(self, examples, labels=None, logits=None, task_labels=None):
         """
         Adds the data to the memory buffer according to the reservoir strategy.
         :param examples: tensor containing the images
@@ -159,7 +159,7 @@ class Buffer:
         :return:
         """
         if not hasattr(self, 'examples'):
-            self.init_tensors(examples, labels, logits, task_labels, original_labels)
+            self.init_tensors(examples, labels, logits, task_labels)
 
         for i in range(examples.shape[0]):
             if self.mode == 'reservoir' or self.mode == 'ring':
@@ -178,8 +178,6 @@ class Buffer:
                     self.logits[index] = logits[i].to(self.device)
                 if task_labels is not None:
                     self.task_labels[index] = task_labels[i].to(self.device)
-                if original_labels is not None:
-                    self.original_labels[index] = original_labels[i].to(self.device)
 
     def get_data(self, size: int, transform: nn.Module = None, return_index=False) -> Tuple:
         """
@@ -258,17 +256,14 @@ class Buffer:
         self.num_seen_examples = 0
         self.current_size = 0
 
-    def get_class_data(self, label: int, labeldrift: bool = False) -> torch.Tensor:
+    def get_class_data(self, label: int) -> torch.Tensor:
         """
         Return all samples with given label.
         If label not present in the buffer, then raise ValueError exception.
         """
-        if labeldrift:
-            idx = torch.argwhere(self.original_labels == label).flatten()
-        else:
-            idx = torch.argwhere(self.labels == label).flatten()
+        idx = torch.argwhere(self.labels == label).flatten()
         if len(idx) == 0:
-            print(f'{"Metaclass" if labeldrift else "Class"} label {label} not present in the buffer')
+            print(f'Class label {label} not present in the buffer')
             return 0
         class_samples = self.examples[idx]
         return class_samples
@@ -283,27 +278,27 @@ class Buffer:
         else:
             return 0
 
-    def flush_class(self, label: int, labeldrift: bool = False) -> None:
+    def flush_class(self, label: int) -> List[int]:
         """
-        Removes all samples with given label.
+        Removes all samples with the given label and returns their indices.
         If label not present in the buffer, then raise ValueError exception.
         """
-        if labeldrift:
-            idx = torch.argwhere(self.original_labels != label).flatten()
-            num_removed = len(self.original_labels) - len(idx)
-        else:
-            idx = torch.argwhere(self.labels != label).flatten()
-            num_removed = len(self.labels) - len(idx)
-        if num_removed == 0:
-            raise ValueError(f'{"Metaclass" if labeldrift else "Class"} label {label} not present in the buffer')
+        removed_indices = (self.labels == label).nonzero(as_tuple=True)[0].tolist()
+
+        if len(removed_indices) == 0:
+            raise ValueError(f"Class label {label} not present in the buffer. Unable to flush class.")
+
         for attr_str in self.attributes:
             if hasattr(self, attr_str):
                 tensor = getattr(self, attr_str)
                 typ = torch.int64 if attr_str.endswith('els') else torch.float32
-                padding = torch.full((num_removed, *tensor.shape[1:]), fill_value=-1, dtype=typ, device=self.device)
-                new_tensor = torch.cat([tensor[idx], padding], dim=0)
-                assert new_tensor.shape == tensor.shape
-                setattr(self, attr_str, new_tensor)
-        self.current_size = max(self.current_size - num_removed, 0)
-        self.num_seen_examples -= num_removed
-        print(f'{"Metaclass" if labeldrift else "Class"} {label} samples removed: {num_removed}')
+                padding = torch.full_like(tensor[removed_indices], fill_value=-1, dtype=typ, device=self.device)
+                tensor[removed_indices] = padding  # Replace in-place instead of shifting
+                setattr(self, attr_str, tensor)
+
+        self.current_size = max(self.current_size - len(removed_indices), 0)
+        self.num_seen_examples -= len(removed_indices)
+        
+        print(f"Class {label} samples removed: {len(removed_indices)}")
+
+        return removed_indices

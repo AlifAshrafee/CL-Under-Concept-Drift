@@ -36,22 +36,25 @@ def add_experiment_args(parser: ArgumentParser) -> None:
 
     parser.add_argument('--distributed', type=str, default='no', choices=['no', 'dp', 'ddp'])
 
-    parser.add_argument('--train_drift', default=-1, choices=[0, 1, 2, 3, 4, -1], type=int,
-                        help='Choose the drift transform to be applied to training data: \
-                        Defocus Blur-> 0, Gaussian Noise-> 1, Shot Noise-> 2, Speckle Noise-> 3, Identity (No transform) -> 4 or -1')
-    parser.add_argument('--concept_drift', default=1, choices=[0, 1, 2, 3, 4, -1], type=int,
+    parser.add_argument('--concept_drift', default=-1, choices=[-1, 0, 1, 2, 3, 4, 5, 6], type=int,
                         help='Choose the drift transform to be applied to drifting data: \
-                        Defocus Blur-> 0, Gaussian Noise-> 1, Shot Noise-> 2, Speckle Noise-> 3, Identity (No transform) -> 4 or -1')
-
+                        Defocus Blur-> 0, Gaussian Noise-> 1, Shot Noise-> 2, Speckle Noise-> 3, \
+                        Rotation -> 4, Pixel Permutation -> 5, Identity (No transform) -> 6 or -1')
     parser.add_argument('--drift_severity', default=1, choices=[1, 2, 3, 4, 5], type=int,
                         help='Choose the intensity of the drift transform:')
-    parser.add_argument('--buffer_flushing', default=0, choices=[0, 1], type=int,
-                        help='Choose to enable buffer flushing')
-    parser.add_argument('--n_slots', default=None, type=int, help='number of classes per task used when generating task stream randomly based on slots')
-    parser.add_argument('--n_drifts', default=None, type=int, help='number of drifts created when creating evenly spaced drfits')
+    parser.add_argument('--drift_adaptation', default=0, choices=[0, 1, 2], type=int,
+                        help='Choose adaptation method when concept drift is detected: \
+                        0 -> No adaptation, 1 -> Full relearning, 2 -> Buffer resampling')
+    # parser.add_argument('--n_slots', default=None, type=int, 
+    #                     help='number of classes per task used when generating task stream randomly based on slots')
+    parser.add_argument('--n_drifts', default=None, type=int, 
+                        help='number of drifts created when creating evenly spaced drfits')
     parser.add_argument('--max_classes_per_drift', type=int, default=0,
-                        help='maximum number of classes that can be drifted at once. Used only with n_drifts. If set to 0 (default), all previous classes will drift.')
-    parser.add_argument('--sequential_drifts', action='store_true', help='if used each task will consist of both new classes and drifted classes from previous task')
+                        help='maximum number of classes that can be drifted at once. Used only with n_drifts. \
+                        If set to 0 (default), all previous classes will drift.')
+    parser.add_argument('--sequential_drifts', action='store_true', 
+                        help='if used each task will consist of both new classes and \
+                        drifted classes from previous task')
 
 
 def add_management_args(parser: ArgumentParser) -> None:
@@ -60,8 +63,11 @@ def add_management_args(parser: ArgumentParser) -> None:
     parser.add_argument('--notes', type=str, default=None,
                         help='Notes for this run.')
 
-    parser.add_argument('--non_verbose', default=0, choices=[0, 1], type=int, help='Make progress bars non verbose')
+    parser.add_argument('--non_verbose', default=0, choices=[0, 1], type=int, 
+                        help='Make progress bars non verbose')
     parser.add_argument('--disable_log', default=0, choices=[0, 1], type=int, help='Enable csv logging')
+    parser.add_argument("--feature_logging", default=0, choices=[0, 1], type=int,
+                        help="Enable model feature logging after each task")
 
     parser.add_argument('--validation', default=0, choices=[0, 1], type=int,
                         help='Test on the validation set')
