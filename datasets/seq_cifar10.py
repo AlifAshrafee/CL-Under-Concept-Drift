@@ -79,9 +79,6 @@ class TrainCIFAR10(MammothDataset, CIFAR10):
             return
         self.drifted_classes.extend(classes)
 
-        # TODO: figure out how to apply drift based on transform multiple times
-        # maybe we should change transforms or change the drift severity?
-
     def prepare_normal_data(self):
         pass
 
@@ -147,19 +144,7 @@ class SequentialCIFAR10(ContinualDataset):
     N_CLASSES_PER_TASK = 2
     N_TASKS = 5
 
-    TRANSFORM = transforms.Compose([
-        # transforms.RandomCrop(32, padding=4),
-        # transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2615))
-    ])
-
-    TEST_TRANSFORM = transforms.Compose([
-        transforms.ToTensor(),
-        # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2470, 0.2435, 0.2615))
-    ])
-
-    NO_AUG_TRANSFORM = transforms.Compose([transforms.ToTensor()])
+    TRANSFORM = transforms.Compose([transforms.ToTensor()])
 
     DRIFT_TYPES = [
         DefocusBlur,
@@ -182,10 +167,10 @@ class SequentialCIFAR10(ContinualDataset):
 
         if train:
             return TrainCIFAR10(base_path() + 'CIFAR10',
-                                transform=self.TRANSFORM, not_aug_transform=self.NO_AUG_TRANSFORM, drift_transform=DRIFT)
+                                transform=self.TRANSFORM, not_aug_transform=self.TRANSFORM, drift_transform=DRIFT)
         else:
             return TestCIFAR10(base_path() + 'CIFAR10',
-                               transform=self.TEST_TRANSFORM, drift_transform=DRIFT)
+                               transform=self.TRANSFORM, drift_transform=DRIFT)
 
     def get_transform(self):
         transform = transforms.Compose(
