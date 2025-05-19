@@ -18,6 +18,10 @@ from drift_detection import detect_uncertainty_drift
 from utils.loggers import *
 from utils.status import ProgressBar
 from utils.feature_shift_logging import extract_features
+import time
+from utils.flops_counter import FLOPsCounter
+from utils.time_counter import TimeCounter
+from torch.profiler import profile, record_function, ProfilerActivity
 
 try:
     import wandb
@@ -39,6 +43,11 @@ def mask_classes(outputs: torch.Tensor, dataset: ContinualDataset, k: int) -> No
             dataset.N_TASKS * dataset.N_CLASSES_PER_TASK] = -float('inf')
 
 def get_unique_labels(data_loader):
+    """
+    Method for checking the unique labels in a data loader
+    :param data_loader: the data loader
+    :return: the unique labels
+    """
     labels = []
     for data in data_loader:
         batch_labels = data[1]
@@ -47,6 +56,24 @@ def get_unique_labels(data_loader):
     unique_labels = torch.unique(torch.tensor(labels))
     return unique_labels.tolist()
 
+def count_flops_time(model, train_loader):
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        record_shapes=True,
+        with_flops=True,
+    ) as prof:
+        with record_function("model_inference"):
+            inputs, labels, not_aug_inputs = next(iter(train_loader))
+            inputs = inputs.to(model.device)
+            labels = labels.to(model.device)
+            not_aug_inputs = not_aug_inputs.to(model.device)
+            start_time = time.time()
+            loss = model.meta_observe(inputs, labels, not_aug_inputs)
+            total_time = time.time() - start_time
+            assert not math.isnan(loss)
+
+    total_flops = sum(event.flops for event in prof.key_averages() if hasattr(event, 'flops') and event.flops > 0)
+    return total_flops * len(train_loader), total_time * len(train_loader)
 
 def evaluate(model: ContinualModel, dataset: ContinualDataset, last=False) -> Tuple[list, list]:
     """
@@ -65,9 +92,6 @@ def evaluate(model: ContinualModel, dataset: ContinualDataset, last=False) -> Tu
         correct, correct_mask_classes, total = 0.0, 0.0, 0.0
         predictions = list()
         all_labels = list()
-
-        # unique_labels = get_unique_labels(test_loader)
-        # print("Unique labels in test loader:", unique_labels)
 
         for data in test_loader:
             with torch.no_grad():
@@ -138,7 +162,11 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
             random_results_class, random_results_task = evaluate(model, dataset_copy)
 
     print(file=sys.stderr)
+    flops_counter = FLOPsCounter()
+    time_counter = TimeCounter()
     for t in range(dataset.N_TASKS):
+        flops_counter.current_task = t
+        time_counter.current_task = t
         model.net.train()
         if args.concept_drift == -1:
             train_loader, _ = dataset.get_data_loaders()
@@ -159,13 +187,15 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
                 elif args.drift_adaptation == 2:
                     model.buffer_resampling(dataset, flagged_classes)
 
-        # unique_labels = get_unique_labels(train_loader)
-        # print("Unique labels in train loader:", unique_labels)
-
         scheduler = dataset.get_scheduler(model, args)
         for epoch in range(model.args.n_epochs):
             if args.model == 'joint':
                 continue
+            if epoch == 0:
+                total_flops, total_time = count_flops_time(model, train_loader)
+                flops_counter.update(total_flops)
+                time_counter.update(total_time)
+
             for i, data in enumerate(train_loader):
                 if args.debug_mode and i > 3:
                     break
@@ -190,6 +220,8 @@ def train(model: ContinualModel, dataset: ContinualDataset, args: Namespace) -> 
         if hasattr(model, 'end_task'):
             model.end_task(dataset)
 
+        flops_counter.report()
+        time_counter.report()
         metrics = evaluate(model, dataset)
         accs = metrics[:2]
         results.append(accs[0])
