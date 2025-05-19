@@ -9,16 +9,26 @@ import numpy as np
 import torch.optim
 import torch.nn.functional as F
 
-from datasets.utils.continual_dataset import ContinualDataset
 from utils.conf import base_path_dataset as base_path
-from datasets.mammoth_dataset import MammothDataset
+from datasets.utils.continual_dataset import ContinualDataset
 from datasets.transforms.to_thre_channels import ToThreeChannels
+from datasets.transforms.driftTransforms import (
+    DefocusBlur,
+    GaussianNoise,
+    ShotNoise,
+    SpeckleNoise,
+    RotateTransform,
+    PixelPermutation,
+    Identity,
+)
+from datasets.mammoth_dataset import MammothDataset
 
 
 class TrainFashionMNIST(MammothDataset, FashionMNIST):
-    def __init__(self, root, transform, target_transform: dict, not_aug_transform, download=False):
-        super().__init__(root, True, transform, target_transform, download)
+    def __init__(self, root, transform, not_aug_transform, drift_transform, download=False):
+        super().__init__(root, train=True, transform=transform, target_transform=None, download=download)
         self.not_aug_transform = not_aug_transform
+        self.drift_transform = drift_transform
         self.classes = list(range(10))
 
     def __getitem__(self, index: int) -> Tuple[Image.Image, int, Image.Image]:
@@ -32,16 +42,18 @@ class TrainFashionMNIST(MammothDataset, FashionMNIST):
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image
         img = Image.fromarray(img.numpy(), mode='L')
-        original_img = self.not_aug_transform(img.copy())
-        original_target = target.copy()
 
+        if target in self.drifted_classes:
+            img = self.drift_transform(img)
+
+        original_img = img.copy()
         img = self.transform(img)
-        target = self.target_transform[target]
+        not_aug_img = self.not_aug_transform(original_img)
 
         if hasattr(self, 'logits'):
-            return img, target, original_img, self.logits[index]
+            return img, target, not_aug_img, self.logits[index]
 
-        return img, target, original_img, original_target
+        return img, target, not_aug_img
 
     def select_classes(self, classes_list: list[int]):
         if len(classes_list) == 0:
@@ -61,18 +73,16 @@ class TrainFashionMNIST(MammothDataset, FashionMNIST):
     def apply_drift(self, classes: list):
         if len(set(self.classes).union(classes)) == 0:
             return
-
-        # switch meta-class in target_transform dictionary
-        for c in classes:
-            self.target_transform[c] = - (self.target_transform[c] - 1)
+        self.drifted_classes.extend(classes)
 
     def prepare_normal_data(self):
         pass
 
 
 class TestFashionMNIST(MammothDataset, FashionMNIST):
-    def __init__(self, root, transform, target_transform: dict, download=False):
-        super().__init__(root, False, transform, target_transform, download)
+    def __init__(self, root, transform, drift_transform, download=False):
+        super().__init__(root, train=False, transform=transform, target_transform=None, download=download)
+        self.drift_transform = drift_transform
         self.classes = list(range(10))
 
     def __getitem__(self, index: int) -> Tuple[Image.Image, int, Image.Image]:
@@ -87,8 +97,10 @@ class TestFashionMNIST(MammothDataset, FashionMNIST):
         # to return a PIL Image
         img = Image.fromarray(img.numpy(), mode='L')
 
+        if target in self.drifted_classes:
+            img = self.drift_transform(img)
+
         img = self.transform(img)
-        target = self.target_transform[target]
 
         if hasattr(self, 'logits'):
             return img, target, self.logits[index]
@@ -113,10 +125,7 @@ class TestFashionMNIST(MammothDataset, FashionMNIST):
     def apply_drift(self, classes: list):
         if len(set(self.classes).union(classes)) == 0:
             return
-
-        # switch meta-class in target_transform dictionary
-        for c in classes:
-            self.target_transform[c] = - (self.target_transform[c] - 1)
+        self.drifted_classes.extend(classes)
 
     def prepare_normal_data(self):
         pass
@@ -128,37 +137,37 @@ class SequentialFashionMNIST(ContinualDataset):
     SETTING = 'class-il'
     N_CLASSES_PER_TASK = 2
     N_TASKS = 5
-    HAS_LABEL_DRIFT = True
 
     TRANSFORM = transforms.Compose([
-        transforms.Resize(32),
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         ToThreeChannels(),
     ])
 
-    TEST_TRANSFORM = transforms.Compose([
-        transforms.Resize(32),
-        transforms.ToTensor(),
-        ToThreeChannels(),
-    ])
-
-    NO_AUG = transforms.Compose([
-        transforms.ToTensor(),
-        ToThreeChannels(),
-    ])
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.metaclass_mapping = {c: mc for c, mc in zip(range(10), [0, 1, 0, 1, 0, 1, 0, 1, 0, 1])}
+    DRIFT_TYPES = [
+        DefocusBlur,
+        GaussianNoise,
+        ShotNoise,
+        SpeckleNoise,
+        RotateTransform,
+        PixelPermutation,
+        Identity,
+    ]
 
     def get_dataset(self, train=True):
+        DRIFT_SEVERITY = self.args.drift_severity
+
+        DRIFT = transforms.Compose([
+            self.DRIFT_TYPES[self.args.concept_drift](DRIFT_SEVERITY),
+            transforms.ToPILImage()
+        ])
+
         if train:
-            return TrainFashionMNIST(base_path() + 'FASHIONMNIST', transform=self.TRANSFORM, target_transform=self.metaclass_mapping,
-                                     not_aug_transform=self.NO_AUG, download=True)
+            return TrainFashionMNIST(base_path() + 'FASHIONMNIST',
+                                    transform=self.TRANSFORM, not_aug_transform=self.TRANSFORM, drift_transform=DRIFT,
+                                    download=True)
         else:
-            return TestFashionMNIST(base_path() + 'FASHIONMNIST', transform=self.TEST_TRANSFORM, target_transform=self.metaclass_mapping,
+            return TestFashionMNIST(base_path() + 'FASHIONMNIST',
+                                    transform=self.TRANSFORM, drift_transform=DRIFT,
                                     download=True)
 
     def get_transform(self):
@@ -166,8 +175,8 @@ class SequentialFashionMNIST(ContinualDataset):
 
     @staticmethod
     def get_backbone():
-        backbone = resnet18(nclasses=2)
-        return backbone
+        return resnet18(SequentialFashionMNIST.N_CLASSES_PER_TASK
+                        * SequentialFashionMNIST.N_TASKS)
 
     @staticmethod
     def get_loss():
