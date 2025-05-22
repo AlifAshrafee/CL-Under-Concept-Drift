@@ -11,6 +11,7 @@ best_args = {
                 "batch_size": 10,
                 "optim_mom": 0,
                 "optim_wd": 0,
+                "n_epochs": 1,
             },
             5000: {
                 "lr": 0.03,
@@ -18,6 +19,7 @@ best_args = {
                 "batch_size": 10,
                 "optim_mom": 0,
                 "optim_wd": 0,
+                "n_epochs": 1,
             },
         },
         "derpp": {
