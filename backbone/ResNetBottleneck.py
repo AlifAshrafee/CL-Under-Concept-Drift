@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Tuple
+from backbone import MammothBackbone
 
 def conv1x1(in_planes: int, out_planes: int, stride: int = 1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
@@ -52,7 +53,7 @@ class Bottleneck(nn.Module):
         out = F.relu(out)
         return out
 
-class ResNet(nn.Module):
+class ResNet(MammothBackbone):
     def __init__(self, block, num_blocks: List[int], num_classes: int, nf: int = 64):
         super(ResNet, self).__init__()
         self.in_planes = nf
