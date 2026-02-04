@@ -100,8 +100,8 @@ class ContinualDataset:
         test_loader = DataLoader(test_dataset, batch_size=self.args.batch_size, shuffle=False, num_workers=4)
         self.test_loaders.append(test_loader)
 
-        if len(recurring_classes) > 0:
-            for t in range(len(self.test_loaders)):
+        if len(recurring_classes) > 0 and len(self.test_loaders) > 1:
+            for t in range(len(self.test_loaders) - 1):
                 prev_test_data = self.test_loaders[t].dataset
                 prev_test_data.apply_drift(recurring_classes)
                 self.test_loaders[t] = DataLoader(prev_test_data, batch_size=self.args.batch_size, 
@@ -110,6 +110,9 @@ class ContinualDataset:
         return train_loader, test_loader
 
     def request_drifted_data_with_current_data(self, drifted_classes) -> DataLoader:
+        """
+        For Full Relearning (adaptation=1): Returns loader with drifted + new classes.
+        """
         drifting_train_dataset = self.get_dataset(train=True)
         drifting_train_dataset.select_classes(drifted_classes)
         drifting_train_dataset.apply_drift(drifted_classes)
@@ -119,6 +122,9 @@ class ContinualDataset:
         return train_loader
 
     def request_drifted_data(self, drifted_class, num_samples_requested) -> DataLoader:
+        """
+        For AMR (adaptation=2): Returns loader with sampled drifted data for buffer resampling.
+        """
         drifting_train_dataset = self.get_dataset(train=True)
         drifting_train_dataset.select_classes([drifted_class])
         drifting_train_dataset.apply_drift([drifted_class])
@@ -130,7 +136,8 @@ class ContinualDataset:
         selected_indices = [class_indices[i] for i in sampled_indices]
 
         drifting_train_dataset = torch.utils.data.Subset(drifting_train_dataset, selected_indices)
-        buffer_resampling_data_loader = DataLoader(drifting_train_dataset, batch_size=num_samples, shuffle=True, num_workers=4)
+        buffer_resampling_data_loader = DataLoader(drifting_train_dataset, batch_size=num_samples, 
+                                                   shuffle=True, num_workers=4)
         return buffer_resampling_data_loader
 
     def get_dataset(self, train=True) -> MammothDataset:
